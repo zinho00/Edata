@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -173,6 +174,25 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         items[itemIndex] = currentParent.copy(entries = updatedEntries)
                         saveHomeData(context, items, nextItemId)
                     },
+                    onDeleteEntry = { entry ->
+                        val latestParent = items[itemIndex]
+                        val entryIndexToRemove =
+                            latestParent.entries.indexOfFirst { it.id == entry.id }
+                        if (entryIndexToRemove != -1) {
+                            val updatedEntries = latestParent.entries
+                                .toMutableList()
+                                .also { it.removeAt(entryIndexToRemove) }
+                            items[itemIndex] = latestParent.copy(entries = updatedEntries)
+                            if (selectedEntryIndex != null) {
+                                val currentSelected = selectedEntryIndex!!
+                                when {
+                                    currentSelected == entryIndexToRemove -> selectedEntryIndex = null
+                                    currentSelected > entryIndexToRemove -> selectedEntryIndex = currentSelected - 1
+                                }
+                            }
+                            saveHomeData(context, items, nextItemId)
+                        }
+                    },
                     onEntryClick = { entry ->
                         val latestParent = items[itemIndex]
                         val index = latestParent.entries.indexOfFirst { it.id == entry.id }
@@ -202,6 +222,23 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         if (index != -1) {
                             selectedItemIndex = index
                             selectedEntryIndex = null
+                        }
+                    },
+                    onDeleteItem = { item ->
+                        val index = items.indexOfFirst { it.id == item.id }
+                        if (index != -1) {
+                            items.removeAt(index)
+                            if (selectedItemIndex != null) {
+                                val currentSelected = selectedItemIndex!!
+                                when {
+                                    currentSelected == index -> {
+                                        selectedItemIndex = null
+                                        selectedEntryIndex = null
+                                    }
+                                    currentSelected > index -> selectedItemIndex = currentSelected - 1
+                                }
+                            }
+                            saveHomeData(context, items, nextItemId)
                         }
                     }
                 )
@@ -247,7 +284,8 @@ fun HomeItemList(
     items: List<HomeItem>,
     colorAssignments: Map<Int, Color>,
     contentPadding: PaddingValues,
-    onItemClick: (HomeItem) -> Unit
+    onItemClick: (HomeItem) -> Unit,
+    onDeleteItem: (HomeItem) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -262,7 +300,8 @@ fun HomeItemList(
                 createdAt = item.createdAt,
                 backgroundColor = colorAssignments[item.id] ?: MaterialTheme.colorScheme.surface,
                 textColor = Color.White,
-                onClick = { onItemClick(item) }
+                onClick = { onItemClick(item) },
+                onDelete = { onDeleteItem(item) }
             )
         }
     }
@@ -274,7 +313,8 @@ fun ItemCard(
     createdAt: LocalDateTime,
     backgroundColor: Color,
     textColor: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
     val formattedTime = remember(createdAt) {
         createdAt.format(displayFormatter)
@@ -292,11 +332,33 @@ fun ItemCard(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = textColor
-            )
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                val titleModifier = if (onDelete != null) {
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(end = 72.dp)
+                } else {
+                    Modifier.align(Alignment.CenterStart)
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = textColor,
+                    modifier = titleModifier
+                )
+                if (onDelete != null) {
+                    TextButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.textButtonColors(contentColor = textColor),
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    ) {
+                        Text(text = "删除")
+                    }
+                }
+            }
             Text(
                 text = formattedTime,
                 style = MaterialTheme.typography.bodyMedium,
@@ -361,6 +423,7 @@ fun EntryListScreen(
     itemColor: Color,
     onBack: () -> Unit,
     onAddEntry: () -> Unit,
+    onDeleteEntry: (CareEntry) -> Unit,
     onEntryClick: (CareEntry) -> Unit
 ) {
     Scaffold(
@@ -370,78 +433,54 @@ fun EntryListScreen(
             }
         }
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(innerPadding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TextButton(onClick = onBack) {
-                    Text(text = "返回")
+            item {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = onBack) {
+                        Text(text = "返回")
+                    }
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleLarge
+                    )
                 }
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleLarge
-                )
             }
 
             if (item.entries.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "暂无记录",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 64.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无记录",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
-                EntryList(
-                    entries = item.entries,
-                    cardColor = itemColor,
-                    textColor = Color.White,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    onEntryClick = onEntryClick
-                )
+                items(item.entries) { entry ->
+                    ItemCard(
+                        title = entry.title,
+                        createdAt = entry.createdAt,
+                        backgroundColor = itemColor,
+                        textColor = Color.White,
+                        onClick = { onEntryClick(entry) },
+                        onDelete = { onDeleteEntry(entry) }
+                    )
+                }
             }
-        }
-    }
-}
-
-@Composable
-fun EntryList(
-    entries: List<CareEntry>,
-    cardColor: Color,
-    textColor: Color,
-    modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
-    onEntryClick: (CareEntry) -> Unit
-) {
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(entries) { entry ->
-            ItemCard(
-                title = entry.title,
-                createdAt = entry.createdAt,
-                backgroundColor = cardColor,
-                textColor = textColor,
-                onClick = { onEntryClick(entry) }
-            )
         }
     }
 }
