@@ -48,7 +48,6 @@ import com.example.edata.ui.theme.EdataTheme
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
-import kotlin.random.Random
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -90,6 +89,7 @@ data class HomeItem(
     val id: Int,
     val title: String,
     val createdAt: LocalDateTime,
+    val color: Long = 0L,
     val entries: List<CareEntry> = emptyList()
 )
 
@@ -105,13 +105,17 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 
     LaunchedEffect(context) {
         val (savedItems, savedNextId) = loadHomeData(context)
+        val (itemsWithColor, colorUpdated) = ensureItemColors(savedItems)
         items.clear()
-        items.addAll(savedItems.sortedByDescending { it.createdAt })
-        val computedNextId = (savedItems.maxOfOrNull { it.id } ?: -1) + 1
+        items.addAll(itemsWithColor.sortedByDescending { it.createdAt })
+        val computedNextId = (itemsWithColor.maxOfOrNull { it.id } ?: -1) + 1
         nextItemId = max(savedNextId, computedNextId)
+        if (colorUpdated) {
+            saveHomeData(context, items, nextItemId)
+        }
     }
 
-    val itemKeys = items.map { it.id }
+    val itemKeys = items.map { it.id to it.color }
     val colorAssignments = remember(itemKeys) { assignCardColors(items) }
 
     val itemIndex = selectedItemIndex
@@ -212,12 +216,17 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         },
                         onConfirm = {
                             if (newItemTitle.isNotBlank()) {
+                                val colorValue = generateCardColor(
+                                    items.mapNotNull { existing ->
+                                        existing.color.takeIf { value -> value != 0L }
+                                    }.toSet()
+                                )
                                 items.add(
                                     HomeItem(
                                         id = nextItemId,
                                         title = newItemTitle.trim(),
-                                        createdAt = LocalDateTime.now()
-                                    )
+                                        createdAt = LocalDateTime.now(),
+                                        color = colorValue                                    )
                                 )
                                 items.sortByDescending { it.createdAt }
                                 nextItemId += 1
@@ -300,19 +309,39 @@ fun ItemCard(
 private fun assignCardColors(items: List<HomeItem>): Map<Int, Color> {
     if (items.isEmpty()) return emptyMap()
 
-    val seed = items.fold(0) { acc, item -> acc * 31 + item.id }
-    val random = Random(seed)
-    val colors = mutableMapOf<Int, Color>()
-    var previousColor: Color? = null
-
-    items.forEach { item ->
-        val availableColors = cardColorPalette.filter { it != previousColor }
-        val selectedColor = availableColors[random.nextInt(availableColors.size)]
-        colors[item.id] = selectedColor
-        previousColor = selectedColor
+    return items.associate { item ->
+        val color = item.color.takeIf { it != 0L }?.let { stored -> Color(stored.toULong()) }
+            ?: cardColorPalette.random()
+        item.id to color
     }
+}
 
-    return colors
+private fun ensureItemColors(items: List<HomeItem>): Pair<List<HomeItem>, Boolean> {
+    if (items.isEmpty()) return emptyList<HomeItem>() to false
+
+    val usedColors = mutableSetOf<Long>()
+    var updated = false
+
+    val updatedItems = items.map { item ->
+        val existingColor = item.color.takeIf { it != 0L }
+        val colorValue = existingColor ?: generateCardColor(usedColors)
+        if (existingColor == null) {
+            updated = true
+        }
+        usedColors += colorValue
+        if (item.color == colorValue) item else item.copy(color = colorValue)
+    }
+    return updatedItems to updated
+}
+
+private fun generateCardColor(excludedColors: Set<Long>): Long {
+    val filteredPalette = cardColorPalette.filter { it.value.toLong() !in excludedColors }
+    val selectedColor = if (filteredPalette.isNotEmpty()) {
+        filteredPalette.random()
+    } else {
+        cardColorPalette.random()
+    }
+    return selectedColor.value.toLong()
 }
 
 private val cardColorPalette = listOf(
@@ -647,6 +676,7 @@ private fun parseHomeItems(json: String?): List<HomeItem> {
                 val createdAt = runCatching {
                     LocalDateTime.parse(createdAtString, storageFormatter)
                 }.getOrElse { LocalDateTime.now() }
+                val color = if (obj.has("color")) obj.optLong("color") else 0L
                 val entries = obj.optJSONArray("entries")?.let { arrayEntries ->
                     buildList {
                         for (entryIndex in 0 until arrayEntries.length()) {
@@ -670,6 +700,7 @@ private fun parseHomeItems(json: String?): List<HomeItem> {
                         id = id,
                         title = title,
                         createdAt = createdAt,
+                        color = color,
                         entries = entries
                     )
                 )
@@ -701,6 +732,7 @@ private fun HomeItem.toJson(): JSONObject {
         put("id", id)
         put("title", title)
         put("createdAt", createdAt.format(storageFormatter))
+        put("color", color)
         put("entries", JSONArray().apply {
             for (entry in entries) {
                 put(entry.toJson())
