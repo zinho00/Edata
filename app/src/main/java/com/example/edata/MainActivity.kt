@@ -111,6 +111,9 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         nextItemId = max(savedNextId, computedNextId)
     }
 
+    val itemKeys = items.map { it.id }
+    val colorAssignments = remember(itemKeys) { assignCardColors(items) }
+
     val itemIndex = selectedItemIndex
     val entryIndex = selectedEntryIndex
 
@@ -147,6 +150,8 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             } else {
                 EntryListScreen(
                     item = parent,
+                    itemColor = colorAssignments[parent.id]
+                        ?: MaterialTheme.colorScheme.surface,
                     onBack = {
                         selectedItemIndex = null
                         selectedEntryIndex = null
@@ -186,6 +191,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             ) { innerPadding ->
                 HomeItemList(
                     items = items,
+                    colorAssignments = colorAssignments,
                     contentPadding = innerPadding,
                     onItemClick = { item ->
                         val index = items.indexOfFirst { it.id == item.id }
@@ -230,14 +236,10 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 @Composable
 fun HomeItemList(
     items: List<HomeItem>,
+    colorAssignments: Map<Int, Color>,
     contentPadding: PaddingValues,
     onItemClick: (HomeItem) -> Unit
 ) {
-    val itemKeys = items.map { it.id }
-    val colorAssignments = remember(itemKeys) {
-        assignCardColors(items)
-    }
-
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -327,6 +329,7 @@ private val cardColorPalette = listOf(
 @Composable
 fun EntryListScreen(
     item: HomeItem,
+    itemColor: Color,
     onBack: () -> Unit,
     onAddEntry: () -> Unit,
     onEntryClick: (CareEntry) -> Unit
@@ -375,6 +378,8 @@ fun EntryListScreen(
             } else {
                 EntryList(
                     entries = item.entries,
+                    cardColor = itemColor,
+                    textColor = Color.White,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
@@ -389,6 +394,8 @@ fun EntryListScreen(
 @Composable
 fun EntryList(
     entries: List<CareEntry>,
+    cardColor: Color,
+    textColor: Color,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onEntryClick: (CareEntry) -> Unit
@@ -402,8 +409,8 @@ fun EntryList(
             ItemCard(
                 title = entry.title,
                 createdAt = entry.createdAt,
-                backgroundColor = MaterialTheme.colorScheme.surface,
-                textColor = MaterialTheme.colorScheme.onSurface,
+                backgroundColor = cardColor,
+                textColor = textColor,
                 onClick = { onEntryClick(entry) }
             )
         }
