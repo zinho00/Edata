@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -47,6 +48,7 @@ import com.example.edata.ui.theme.EdataTheme
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
+import kotlin.random.Random
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -231,6 +233,11 @@ fun HomeItemList(
     contentPadding: PaddingValues,
     onItemClick: (HomeItem) -> Unit
 ) {
+    val itemKeys = items.map { it.id }
+    val colorAssignments = remember(itemKeys) {
+        assignCardColors(items)
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -242,6 +249,8 @@ fun HomeItemList(
             ItemCard(
                 title = item.title,
                 createdAt = item.createdAt,
+                backgroundColor = colorAssignments[item.id] ?: MaterialTheme.colorScheme.surface,
+                textColor = Color.White,
                 onClick = { onItemClick(item) }
             )
         }
@@ -249,7 +258,13 @@ fun HomeItemList(
 }
 
 @Composable
-fun ItemCard(title: String, createdAt: LocalDateTime, onClick: () -> Unit) {
+fun ItemCard(
+    title: String,
+    createdAt: LocalDateTime,
+    backgroundColor: Color,
+    textColor: Color,
+    onClick: () -> Unit
+) {
     val formattedTime = remember(createdAt) {
         createdAt.format(displayFormatter)
     }
@@ -258,7 +273,7 @@ fun ItemCard(title: String, createdAt: LocalDateTime, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
     ) {
         Column(
             modifier = Modifier
@@ -268,16 +283,46 @@ fun ItemCard(title: String, createdAt: LocalDateTime, onClick: () -> Unit) {
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                color = textColor
             )
             Text(
                 text = formattedTime,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = textColor.copy(alpha = 0.9f)
             )
         }
     }
 }
+
+private fun assignCardColors(items: List<HomeItem>): Map<Int, Color> {
+    if (items.isEmpty()) return emptyMap()
+
+    val seed = items.fold(0) { acc, item -> acc * 31 + item.id }
+    val random = Random(seed)
+    val colors = mutableMapOf<Int, Color>()
+    var previousColor: Color? = null
+
+    items.forEach { item ->
+        val availableColors = cardColorPalette.filter { it != previousColor }
+        val selectedColor = availableColors[random.nextInt(availableColors.size)]
+        colors[item.id] = selectedColor
+        previousColor = selectedColor
+    }
+
+    return colors
+}
+
+private val cardColorPalette = listOf(
+    Color(0xFF3F51B5), // Indigo
+    Color(0xFF009688), // Teal
+    Color(0xFF607D8B), // Blue Grey
+    Color(0xFFF57C00), // Orange
+    Color(0xFF8E24AA), // Purple
+    Color(0xFF43A047), // Green
+    Color(0xFF3949AB), // Deep Purple
+    Color(0xFF00897B)  // Teal variant
+)
 
 @Composable
 fun EntryListScreen(
@@ -357,6 +402,8 @@ fun EntryList(
             ItemCard(
                 title = entry.title,
                 createdAt = entry.createdAt,
+                backgroundColor = MaterialTheme.colorScheme.surface,
+                textColor = MaterialTheme.colorScheme.onSurface,
                 onClick = { onEntryClick(entry) }
             )
         }
