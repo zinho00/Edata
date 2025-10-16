@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -36,8 +37,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -75,12 +77,20 @@ data class CareInfo(
     val momOther: String = ""
 )
 
-data class HomeItem(
+data class CareEntry(
     val id: Int,
     val title: String,
     val createdAt: LocalDateTime,
     val careInfo: CareInfo = CareInfo()
 )
+
+data class HomeItem(
+    val id: Int,
+    val title: String,
+    val createdAt: LocalDateTime,
+    val entries: List<CareEntry> = emptyList()
+)
+
 @Composable
 fun HomeScreen(modifier: Modifier = Modifier) {
     val items = remember { mutableStateListOf<HomeItem>() }
@@ -88,79 +98,135 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var newItemTitle by remember { mutableStateOf("") }
     var nextItemId by remember { mutableStateOf(0) }
     var selectedItemIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedEntryIndex by remember { mutableStateOf<Int?>(null) }
     val context = LocalContext.current
 
     LaunchedEffect(context) {
         val (savedItems, savedNextId) = loadHomeData(context)
         items.clear()
-        items.addAll(savedItems)
+        items.addAll(savedItems.sortedByDescending { it.createdAt })
         val computedNextId = (savedItems.maxOfOrNull { it.id } ?: -1) + 1
         nextItemId = max(savedNextId, computedNextId)
     }
 
-    val detailIndex = selectedItemIndex
+    val itemIndex = selectedItemIndex
+    val entryIndex = selectedEntryIndex
 
-    if (detailIndex != null) {
-        CareDetailScreen(
-            item = items[detailIndex],
-            onBack = { selectedItemIndex = null },
-            onSave = { info ->
-                items[detailIndex] = items[detailIndex].copy(careInfo = info)
-                saveHomeData(context, items, nextItemId)
-                selectedItemIndex = null
-            }
-        )
-    } else {
-        Scaffold(
-            modifier = modifier.fillMaxSize(),
-            floatingActionButton = {
-                FloatingActionButton(onClick = { showDialog = true }) {
-                    Text(text = "+")
-                }
-            }
-        ) { innerPadding ->
-            ItemList(
-                items = items,
-                contentPadding = innerPadding,
-                onItemClick = { item ->
-                    val index = items.indexOfFirst { it.id == item.id }
-                    if (index != -1) {
-                        selectedItemIndex = index
-                    }
-                }
-            )
-
-            if (showDialog) {
-                AddItemDialog(
-                    title = newItemTitle,
-                    onTitleChange = { newItemTitle = it },
-                    onDismiss = {
-                        showDialog = false
-                        newItemTitle = ""
-                    },
-                    onConfirm = {
-                        if (newItemTitle.isNotBlank()) {
-                            items.add(
-                                HomeItem(
-                                    id = nextItemId,
-                                    title = newItemTitle.trim(),
-                                    createdAt = LocalDateTime.now()
-                                )
-                            )
-                            nextItemId += 1
+    when {
+        itemIndex != null && entryIndex != null -> {
+            val parent = items.getOrNull(itemIndex)
+            val entry = parent?.entries?.getOrNull(entryIndex)
+            if (parent == null || entry == null) {
+                selectedEntryIndex = null
+            } else {
+                CareDetailScreen(
+                    parentTitle = parent.title,
+                    entry = entry,
+                    onBack = { selectedEntryIndex = null },
+                    onSave = { info ->
+                        val updatedParent = items[itemIndex]
+                        val updatedEntries = updatedParent.entries.toMutableList()
+                        if (entryIndex in updatedEntries.indices) {
+                            updatedEntries[entryIndex] = updatedEntries[entryIndex].copy(careInfo = info)
+                            items[itemIndex] = updatedParent.copy(entries = updatedEntries)
                             saveHomeData(context, items, nextItemId)
-                            showDialog = false
-                            newItemTitle = ""
+                        }
+                        selectedEntryIndex = null
+                    }
+                )
+            }
+        }
+
+        itemIndex != null -> {
+            val parent = items.getOrNull(itemIndex)
+            if (parent == null) {
+                selectedItemIndex = null
+                selectedEntryIndex = null
+            } else {
+                EntryListScreen(
+                    item = parent,
+                    onBack = {
+                        selectedItemIndex = null
+                        selectedEntryIndex = null
+                    },
+                    onAddEntry = {
+                        val currentParent = items[itemIndex]
+                        val now = LocalDateTime.now()
+                        val newEntry = CareEntry(
+                            id = (currentParent.entries.maxOfOrNull { it.id } ?: -1) + 1,
+                            title = now.format(displayFormatter),
+                            createdAt = now
+                        )
+                        val updatedEntries = (currentParent.entries + newEntry)
+                            .sortedByDescending { it.createdAt }
+                        items[itemIndex] = currentParent.copy(entries = updatedEntries)
+                        saveHomeData(context, items, nextItemId)
+                    },
+                    onEntryClick = { entry ->
+                        val latestParent = items[itemIndex]
+                        val index = latestParent.entries.indexOfFirst { it.id == entry.id }
+                        if (index != -1) {
+                            selectedEntryIndex = index
                         }
                     }
                 )
+            }
+        }
+
+        else -> {
+            Scaffold(
+                modifier = modifier.fillMaxSize(),
+                floatingActionButton = {
+                    FloatingActionButton(onClick = { showDialog = true }) {
+                        Text(text = "+")
+                    }
+                }
+            ) { innerPadding ->
+                HomeItemList(
+                    items = items,
+                    contentPadding = innerPadding,
+                    onItemClick = { item ->
+                        val index = items.indexOfFirst { it.id == item.id }
+                        if (index != -1) {
+                            selectedItemIndex = index
+                            selectedEntryIndex = null
+                        }
+                    }
+                )
+
+                if (showDialog) {
+                    AddItemDialog(
+                        title = newItemTitle,
+                        onTitleChange = { newItemTitle = it },
+                        onDismiss = {
+                            showDialog = false
+                            newItemTitle = ""
+                        },
+                        onConfirm = {
+                            if (newItemTitle.isNotBlank()) {
+                                items.add(
+                                    HomeItem(
+                                        id = nextItemId,
+                                        title = newItemTitle.trim(),
+                                        createdAt = LocalDateTime.now()
+                                    )
+                                )
+                                items.sortByDescending { it.createdAt }
+                                nextItemId += 1
+                                saveHomeData(context, items, nextItemId)
+                                showDialog = false
+                                newItemTitle = ""
+                            }
+                        }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun ItemList(
+fun HomeItemList(
     items: List<HomeItem>,
     contentPadding: PaddingValues,
     onItemClick: (HomeItem) -> Unit
@@ -174,7 +240,8 @@ fun ItemList(
     ) {
         items(items) { item ->
             ItemCard(
-                item = item,
+                title = item.title,
+                createdAt = item.createdAt,
                 onClick = { onItemClick(item) }
             )
         }
@@ -182,9 +249,9 @@ fun ItemList(
 }
 
 @Composable
-fun ItemCard(item: HomeItem, onClick: () -> Unit) {
-    val formattedTime = remember(item.createdAt) {
-        item.createdAt.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+fun ItemCard(title: String, createdAt: LocalDateTime, onClick: () -> Unit) {
+    val formattedTime = remember(createdAt) {
+        createdAt.format(displayFormatter)
     }
 
     Card(
@@ -200,7 +267,7 @@ fun ItemCard(item: HomeItem, onClick: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = item.title,
+                text = title,
                 style = MaterialTheme.typography.titleMedium
             )
             Text(
@@ -213,22 +280,107 @@ fun ItemCard(item: HomeItem, onClick: () -> Unit) {
 }
 
 @Composable
-fun CareDetailScreen(
+fun EntryListScreen(
     item: HomeItem,
+    onBack: () -> Unit,
+    onAddEntry: () -> Unit,
+    onEntryClick: (CareEntry) -> Unit
+) {
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAddEntry) {
+                Text(text = "+")
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(onClick = onBack) {
+                    Text(text = "返回")
+                }
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+
+            if (item.entries.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "暂无记录",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                EntryList(
+                    entries = item.entries,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    onEntryClick = onEntryClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun EntryList(
+    entries: List<CareEntry>,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    onEntryClick: (CareEntry) -> Unit
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = contentPadding,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(entries) { entry ->
+            ItemCard(
+                title = entry.title,
+                createdAt = entry.createdAt,
+                onClick = { onEntryClick(entry) }
+            )
+        }
+    }
+}
+
+@Composable
+fun CareDetailScreen(
+    parentTitle: String,
+    entry: CareEntry,
     onBack: () -> Unit,
     onSave: (CareInfo) -> Unit
 ) {
-    var babyFeedingTime by remember(item) { mutableStateOf(item.careInfo.babyFeedingTime) }
-    var babyFeedingCount by remember(item) { mutableStateOf(item.careInfo.babyFeedingCount) }
-    var babyMilkAmount by remember(item) { mutableStateOf(item.careInfo.babyMilkAmount) }
-    var babyWaterCount by remember(item) { mutableStateOf(item.careInfo.babyWaterCount) }
-    var babyWaterAmount by remember(item) { mutableStateOf(item.careInfo.babyWaterAmount) }
-    var babyExcretionCount by remember(item) { mutableStateOf(item.careInfo.babyExcretionCount) }
-    var babyAbnormal by remember(item) { mutableStateOf(item.careInfo.babyAbnormal) }
-    var momUrinationCount by remember(item) { mutableStateOf(item.careInfo.momUrinationCount) }
-    var momUrinationAmount by remember(item) { mutableStateOf(item.careInfo.momUrinationAmount) }
-    var momWipeCount by remember(item) { mutableStateOf(item.careInfo.momWipeCount) }
-    var momOther by remember(item) { mutableStateOf(item.careInfo.momOther) }
+    var babyFeedingTime by remember(entry) { mutableStateOf(entry.careInfo.babyFeedingTime) }
+    var babyFeedingCount by remember(entry) { mutableStateOf(entry.careInfo.babyFeedingCount) }
+    var babyMilkAmount by remember(entry) { mutableStateOf(entry.careInfo.babyMilkAmount) }
+    var babyWaterCount by remember(entry) { mutableStateOf(entry.careInfo.babyWaterCount) }
+    var babyWaterAmount by remember(entry) { mutableStateOf(entry.careInfo.babyWaterAmount) }
+    var babyExcretionCount by remember(entry) { mutableStateOf(entry.careInfo.babyExcretionCount) }
+    var babyAbnormal by remember(entry) { mutableStateOf(entry.careInfo.babyAbnormal) }
+    var momUrinationCount by remember(entry) { mutableStateOf(entry.careInfo.momUrinationCount) }
+    var momUrinationAmount by remember(entry) { mutableStateOf(entry.careInfo.momUrinationAmount) }
+    var momWipeCount by remember(entry) { mutableStateOf(entry.careInfo.momWipeCount) }
+    var momOther by remember(entry) { mutableStateOf(entry.careInfo.momOther) }
 
     Column(
         modifier = Modifier
@@ -241,7 +393,11 @@ fun CareDetailScreen(
             Text(text = "返回")
         }
         Text(
-            text = item.title,
+            text = parentTitle,
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = entry.title,
             style = MaterialTheme.typography.titleLarge
         )
 
@@ -397,6 +553,7 @@ fun HomeScreenPreview() {
 private const val PREFS_NAME = "home_items_prefs"
 private const val KEY_ITEMS = "home_items"
 private const val KEY_NEXT_ID = "next_item_id"
+private val displayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val storageFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
 
 private fun saveHomeData(context: Context, items: List<HomeItem>, nextItemId: Int) {
@@ -436,10 +593,34 @@ private fun parseHomeItems(json: String?): List<HomeItem> {
                 val createdAt = runCatching {
                     LocalDateTime.parse(createdAtString, storageFormatter)
                 }.getOrElse { LocalDateTime.now() }
-                val careInfo = obj.optJSONObject("careInfo")?.toCareInfo() ?: CareInfo()
-                add(HomeItem(id = id, title = title, createdAt = createdAt, careInfo = careInfo))
+                val entries = obj.optJSONArray("entries")?.let { arrayEntries ->
+                    buildList {
+                        for (entryIndex in 0 until arrayEntries.length()) {
+                            val entryObj = arrayEntries.optJSONObject(entryIndex) ?: continue
+                            add(entryObj.toCareEntry())
+                        }
+                    }.sortedByDescending { it.createdAt }
+                } ?: obj.optJSONObject("careInfo")?.let { legacyInfo ->
+                    val info = legacyInfo.toCareInfo()
+                    listOf(
+                        CareEntry(
+                            id = 0,
+                            title = createdAt.format(displayFormatter),
+                            createdAt = createdAt,
+                            careInfo = info
+                        )
+                    )
+                } ?: emptyList()
+                add(
+                    HomeItem(
+                        id = id,
+                        title = title,
+                        createdAt = createdAt,
+                        entries = entries
+                    )
+                )
             }
-        }
+        }.sortedByDescending { it.createdAt }
     } catch (_: JSONException) {
         emptyList()
     }
@@ -466,7 +647,11 @@ private fun HomeItem.toJson(): JSONObject {
         put("id", id)
         put("title", title)
         put("createdAt", createdAt.format(storageFormatter))
-        put("careInfo", careInfo.toJson())
+        put("entries", JSONArray().apply {
+            for (entry in entries) {
+                put(entry.toJson())
+            }
+        })
     }
 }
 
@@ -483,5 +668,30 @@ private fun CareInfo.toJson(): JSONObject {
         put("momUrinationAmount", momUrinationAmount)
         put("momWipeCount", momWipeCount)
         put("momOther", momOther)
+    }
+}
+
+private fun JSONObject.toCareEntry(): CareEntry {
+    val id = optInt("id", 0)
+    val title = optString("title", "")
+    val createdAtString = optString("createdAt", "")
+    val createdAt = runCatching {
+        LocalDateTime.parse(createdAtString, storageFormatter)
+    }.getOrElse { LocalDateTime.now() }
+    val careInfo = optJSONObject("careInfo")?.toCareInfo() ?: CareInfo()
+    return CareEntry(
+        id = id,
+        title = if (title.isNotBlank()) title else createdAt.format(displayFormatter),
+        createdAt = createdAt,
+        careInfo = careInfo
+    )
+}
+
+private fun CareEntry.toJson(): JSONObject {
+    return JSONObject().apply {
+        put("id", id)
+        put("title", title)
+        put("createdAt", createdAt.format(storageFormatter))
+        put("careInfo", careInfo.toJson())
     }
 }
