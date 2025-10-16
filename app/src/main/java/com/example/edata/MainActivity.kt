@@ -435,6 +435,8 @@ fun EntryListScreen(
     onDeleteEntry: (CareEntry) -> Unit,
     onEntryClick: (CareEntry) -> Unit
 ) {
+    var entryPendingDeletion by remember { mutableStateOf<CareEntry?>(null) }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = onAddEntry) {
@@ -486,11 +488,37 @@ fun EntryListScreen(
                         backgroundColor = itemColor,
                         textColor = Color.White,
                         onClick = { onEntryClick(entry) },
-                        onLongPress  = { onDeleteEntry(entry) }
+                        onLongPress = { entryPendingDeletion = entry }
                     )
                 }
             }
         }
+    }
+
+    val pendingDeletionEntry = entryPendingDeletion
+    if (pendingDeletionEntry != null) {
+        AlertDialog(
+            onDismissRequest = { entryPendingDeletion = null },
+            title = { Text(text = "确认删除") },
+            text = {
+                Text(text = "确定要删除\"${pendingDeletionEntry.title}\"吗？")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteEntry(pendingDeletionEntry)
+                        entryPendingDeletion = null
+                    }
+                ) {
+                    Text(text = "删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { entryPendingDeletion = null }) {
+                    Text(text = "取消")
+                }
+            }
+        )
     }
 }
 
