@@ -5,7 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -102,6 +102,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var nextItemId by remember { mutableStateOf(0) }
     var selectedItemIndex by remember { mutableStateOf<Int?>(null) }
     var selectedEntryIndex by remember { mutableStateOf<Int?>(null) }
+    var itemPendingDeletion by remember { mutableStateOf<HomeItem?>(null) }
     val context = LocalContext.current
 
     LaunchedEffect(context) {
@@ -225,21 +226,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         }
                     },
                     onDeleteItem = { item ->
-                        val index = items.indexOfFirst { it.id == item.id }
-                        if (index != -1) {
-                            items.removeAt(index)
-                            if (selectedItemIndex != null) {
-                                val currentSelected = selectedItemIndex!!
-                                when {
-                                    currentSelected == index -> {
-                                        selectedItemIndex = null
-                                        selectedEntryIndex = null
-                                    }
-                                    currentSelected > index -> selectedItemIndex = currentSelected - 1
-                                }
-                            }
-                            saveHomeData(context, items, nextItemId)
-                        }
+                        itemPendingDeletion = item
                     }
                 )
 
@@ -274,6 +261,46 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         }
                     )
                 }
+
+                val pendingDeletionItem = itemPendingDeletion
+                if (pendingDeletionItem != null) {
+                    AlertDialog(
+                        onDismissRequest = { itemPendingDeletion = null },
+                        title = { Text(text = "确认删除") },
+                        text = {
+                            Text(text = "确定要删除\"${pendingDeletionItem.title}\"吗？")
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    val index = items.indexOfFirst { it.id == pendingDeletionItem.id }
+                                    if (index != -1) {
+                                        items.removeAt(index)
+                                        if (selectedItemIndex != null) {
+                                            val currentSelected = selectedItemIndex!!
+                                            when {
+                                                currentSelected == index -> {
+                                                    selectedItemIndex = null
+                                                    selectedEntryIndex = null
+                                                }
+                                                currentSelected > index -> selectedItemIndex = currentSelected - 1
+                                            }
+                                        }
+                                        saveHomeData(context, items, nextItemId)
+                                    }
+                                    itemPendingDeletion = null
+                                }
+                            ) {
+                                Text(text = "删除")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { itemPendingDeletion = null }) {
+                                Text(text = "取消")
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -301,12 +328,13 @@ fun HomeItemList(
                 backgroundColor = colorAssignments[item.id] ?: MaterialTheme.colorScheme.surface,
                 textColor = Color.White,
                 onClick = { onItemClick(item) },
-                onDelete = { onDeleteItem(item) }
+                onLongPress = { onDeleteItem(item) }
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ItemCard(
     title: String,
@@ -314,7 +342,7 @@ fun ItemCard(
     backgroundColor: Color,
     textColor: Color,
     onClick: () -> Unit,
-    onDelete: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null
 ) {
     val formattedTime = remember(createdAt) {
         createdAt.format(displayFormatter)
@@ -323,7 +351,10 @@ fun ItemCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = { onLongPress?.invoke() }
+            ),
         colors = CardDefaults.cardColors(containerColor = backgroundColor)
     ) {
         Column(
@@ -332,33 +363,11 @@ fun ItemCard(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                val titleModifier = if (onDelete != null) {
-                    Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(end = 72.dp)
-                } else {
-                    Modifier.align(Alignment.CenterStart)
-                }
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textColor,
-                    modifier = titleModifier
-                )
-                if (onDelete != null) {
-                    TextButton(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.textButtonColors(contentColor = textColor),
-                        modifier = Modifier.align(Alignment.CenterEnd)
-                    ) {
-                        Text(text = "删除")
-                    }
-                }
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = textColor
+            )
             Text(
                 text = formattedTime,
                 style = MaterialTheme.typography.bodyMedium,
@@ -477,7 +486,7 @@ fun EntryListScreen(
                         backgroundColor = itemColor,
                         textColor = Color.White,
                         onClick = { onEntryClick(entry) },
-                        onDelete = { onDeleteEntry(entry) }
+                        onLongPress  = { onDeleteEntry(entry) }
                     )
                 }
             }
