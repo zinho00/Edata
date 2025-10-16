@@ -1,5 +1,6 @@
 package com.example.edata
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,9 +14,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -29,11 +30,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -41,6 +44,10 @@ import androidx.compose.ui.unit.dp
 import com.example.edata.ui.theme.EdataTheme
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.math.max
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,6 +88,15 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var newItemTitle by remember { mutableStateOf("") }
     var nextItemId by remember { mutableStateOf(0) }
     var selectedItemIndex by remember { mutableStateOf<Int?>(null) }
+    val context = LocalContext.current
+
+    LaunchedEffect(context) {
+        val (savedItems, savedNextId) = loadHomeData(context)
+        items.clear()
+        items.addAll(savedItems)
+        val computedNextId = (savedItems.maxOfOrNull { it.id } ?: -1) + 1
+        nextItemId = max(savedNextId, computedNextId)
+    }
 
     val detailIndex = selectedItemIndex
 
@@ -90,6 +106,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             onBack = { selectedItemIndex = null },
             onSave = { info ->
                 items[detailIndex] = items[detailIndex].copy(careInfo = info)
+                saveHomeData(context, items, nextItemId)
                 selectedItemIndex = null
             }
         )
@@ -131,6 +148,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                                 )
                             )
                             nextItemId += 1
+                            saveHomeData(context, items, nextItemId)
                             showDialog = false
                             newItemTitle = ""
                         }
@@ -158,7 +176,8 @@ fun ItemList(
             ItemCard(
                 item = item,
                 onClick = { onItemClick(item) }
-            )        }
+            )
+        }
     }
 }
 
@@ -372,5 +391,97 @@ fun AddItemDialog(
 fun HomeScreenPreview() {
     EdataTheme {
         HomeScreen()
+    }
+}
+
+private const val PREFS_NAME = "home_items_prefs"
+private const val KEY_ITEMS = "home_items"
+private const val KEY_NEXT_ID = "next_item_id"
+private val storageFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+private fun saveHomeData(context: Context, items: List<HomeItem>, nextItemId: Int) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val editor = prefs.edit()
+    editor.putString(KEY_ITEMS, items.toJsonString())
+    editor.putInt(KEY_NEXT_ID, nextItemId)
+    editor.apply()
+}
+
+private fun loadHomeData(context: Context): Pair<List<HomeItem>, Int> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val itemsJson = prefs.getString(KEY_ITEMS, null)
+    val nextId = prefs.getInt(KEY_NEXT_ID, 0)
+    val items = parseHomeItems(itemsJson)
+    return items to nextId
+}
+
+private fun List<HomeItem>.toJsonString(): String {
+    val array = JSONArray()
+    for (item in this) {
+        array.put(item.toJson())
+    }
+    return array.toString()
+}
+
+private fun parseHomeItems(json: String?): List<HomeItem> {
+    if (json.isNullOrBlank()) return emptyList()
+    return try {
+        val array = JSONArray(json)
+        buildList {
+            for (index in 0 until array.length()) {
+                val obj = array.optJSONObject(index) ?: continue
+                val id = obj.optInt("id", index)
+                val title = obj.optString("title", "")
+                val createdAtString = obj.optString("createdAt", "")
+                val createdAt = runCatching {
+                    LocalDateTime.parse(createdAtString, storageFormatter)
+                }.getOrElse { LocalDateTime.now() }
+                val careInfo = obj.optJSONObject("careInfo")?.toCareInfo() ?: CareInfo()
+                add(HomeItem(id = id, title = title, createdAt = createdAt, careInfo = careInfo))
+            }
+        }
+    } catch (_: JSONException) {
+        emptyList()
+    }
+}
+
+private fun JSONObject.toCareInfo(): CareInfo {
+    return CareInfo(
+        babyFeedingTime = optString("babyFeedingTime", ""),
+        babyFeedingCount = optString("babyFeedingCount", ""),
+        babyMilkAmount = optString("babyMilkAmount", ""),
+        babyWaterCount = optString("babyWaterCount", ""),
+        babyWaterAmount = optString("babyWaterAmount", ""),
+        babyExcretionCount = optString("babyExcretionCount", ""),
+        babyAbnormal = optString("babyAbnormal", ""),
+        momUrinationCount = optString("momUrinationCount", ""),
+        momUrinationAmount = optString("momUrinationAmount", ""),
+        momWipeCount = optString("momWipeCount", ""),
+        momOther = optString("momOther", "")
+    )
+}
+
+private fun HomeItem.toJson(): JSONObject {
+    return JSONObject().apply {
+        put("id", id)
+        put("title", title)
+        put("createdAt", createdAt.format(storageFormatter))
+        put("careInfo", careInfo.toJson())
+    }
+}
+
+private fun CareInfo.toJson(): JSONObject {
+    return JSONObject().apply {
+        put("babyFeedingTime", babyFeedingTime)
+        put("babyFeedingCount", babyFeedingCount)
+        put("babyMilkAmount", babyMilkAmount)
+        put("babyWaterCount", babyWaterCount)
+        put("babyWaterAmount", babyWaterAmount)
+        put("babyExcretionCount", babyExcretionCount)
+        put("babyAbnormal", babyAbnormal)
+        put("momUrinationCount", momUrinationCount)
+        put("momUrinationAmount", momUrinationAmount)
+        put("momWipeCount", momWipeCount)
+        put("momOther", momOther)
     }
 }
