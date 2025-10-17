@@ -143,6 +143,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var isExporting by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var lastExportedFile by remember { mutableStateOf<File?>(null) }
 
     LaunchedEffect(context) {
         val (savedItems, savedNextId) = loadHomeData(context)
@@ -266,6 +267,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         isMenuOpen = isMenuOpen,
                         onMenuClick = { isMenuOpen = true },
                         onDismissMenu = { isMenuOpen = false },
+                        isShareEnabled = lastExportedFile?.exists() == true,
                         onExportClick = {
                             isMenuOpen = false
                             if (items.isEmpty()) {
@@ -279,6 +281,30 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                                     selectedForExport.clear()
                                 }
                                 showExportDialog = true
+                            }
+                        },
+                        onShareClick = {
+                            isMenuOpen = false
+                            val file = lastExportedFile
+                            if (file == null || !file.exists()) {
+                                lastExportedFile = null
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.share_no_recent_export),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                val launched = shareFileViaWeChat(context, file)
+                                val messageRes = if (launched) {
+                                    R.string.share_launch_wechat
+                                } else {
+                                    R.string.share_failed_wechat_not_installed
+                                }
+                                Toast.makeText(
+                                    context,
+                                    context.getString(messageRes),
+                                    Toast.LENGTH_LONG
+                                ).show()
                             }
                         }
                     )
@@ -356,15 +382,13 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                                             selectedForExport.clear()
                                             result.fold(
                                                 onSuccess = { file ->
-                                                    val launched = shareFileViaWeChat(context, file)
-                                                    val messageRes = if (launched) {
-                                                        R.string.share_launch_wechat
-                                                    } else {
-                                                        R.string.share_failed_wechat_not_installed
-                                                    }
+                                                    lastExportedFile = file
                                                     Toast.makeText(
                                                         context,
-                                                        context.getString(messageRes),
+                                                        context.getString(
+                                                            R.string.export_success_toast,
+                                                            file.absolutePath
+                                                        ),
                                                         Toast.LENGTH_LONG
                                                     ).show()
                                                 },
@@ -376,7 +400,8 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                                                         context,
                                                         context.getString(R.string.export_failed, detail),
                                                         Toast.LENGTH_LONG
-                                                    ).show()                                                }
+                                                    ).show()
+                                                }
                                             )
                                         }
                                     }
@@ -469,7 +494,9 @@ fun HomeTopBar(
     isMenuOpen: Boolean,
     onMenuClick: () -> Unit,
     onDismissMenu: () -> Unit,
-    onExportClick: () -> Unit
+    isShareEnabled: Boolean,
+    onExportClick: () -> Unit,
+    onShareClick: () -> Unit
 ) {
     CenterAlignedTopAppBar(
         modifier = modifier,
@@ -491,6 +518,11 @@ fun HomeTopBar(
                         onClick = {
                             onExportClick()
                         }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(text = stringResource(id = R.string.menu_share_wechat)) },
+                        enabled = isShareEnabled,
+                        onClick = onShareClick
                     )
                 }
             }
