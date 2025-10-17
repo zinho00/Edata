@@ -1177,8 +1177,9 @@ private fun exportHomeItemsToExcel(context: Context, items: List<HomeItem>): Fil
         rowIndex++
     }
 
+    val defaultColumnWidth = 20 * 256
     exportHeaders.indices.forEach { index ->
-        sheet.autoSizeColumn(index)
+        sheet.setColumnWidth(index, defaultColumnWidth)
     }
 
     val directory = context.getExternalFilesDir(null) ?: context.filesDir
