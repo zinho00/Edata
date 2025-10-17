@@ -1,6 +1,10 @@
 package com.example.edata
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -66,6 +70,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.edata.R
 import com.example.edata.ui.theme.EdataTheme
+import androidx.core.content.FileProvider
+import com.example.edata.BuildConfig
 import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDateTime
@@ -348,25 +354,30 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                                             isExporting = false
                                             showExportDialog = false
                                             selectedForExport.clear()
-                                            val message = result.fold(
-                                                onSuccess = {
-                                                    context.getString(
-                                                        R.string.export_success,
-                                                        it.absolutePath
-                                                    )
+                                            result.fold(
+                                                onSuccess = { file ->
+                                                    val launched = shareFileViaWeChat(context, file)
+                                                    val messageRes = if (launched) {
+                                                        R.string.share_launch_wechat
+                                                    } else {
+                                                        R.string.share_failed_wechat_not_installed
+                                                    }
+                                                    Toast.makeText(
+                                                        context,
+                                                        context.getString(messageRes),
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
                                                 },
                                                 onFailure = {
                                                     val detail = it.localizedMessage
                                                         ?.takeIf { message -> message.isNotBlank() }
                                                         ?: context.getString(R.string.export_failed_unknown)
-                                                    context.getString(R.string.export_failed, detail)
-                                                }
+                                                    Toast.makeText(
+                                                        context,
+                                                        context.getString(R.string.export_failed, detail),
+                                                        Toast.LENGTH_LONG
+                                                    ).show()                                                }
                                             )
-                                            Toast.makeText(
-                                                context,
-                                                message,
-                                                Toast.LENGTH_LONG
-                                            ).show()
                                         }
                                     }
                                 }
@@ -1149,6 +1160,59 @@ private fun exportHomeItemsToExcel(context: Context, items: List<HomeItem>): Fil
     }
     workbook.close()
     return file
+}
+
+private fun shareFileViaWeChat(context: Context, file: File): Boolean {
+    val weChatPackage = "com.tencent.mm"
+    if (!isPackageInstalled(context, weChatPackage)) {
+        return false
+    }
+
+    val authority = "${BuildConfig.APPLICATION_ID}.fileprovider"
+    val uri = FileProvider.getUriForFile(context, authority, file)
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        `package` = weChatPackage
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (context !is Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    val resolvedActivities = context.packageManager.queryIntentActivities(
+        shareIntent,
+        PackageManager.MATCH_DEFAULT_ONLY
+    )
+    resolvedActivities.forEach { info ->
+        context.grantUriPermission(
+            info.activityInfo.packageName,
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+    }
+
+    return try {
+        context.startActivity(shareIntent)
+        true
+    } catch (error: ActivityNotFoundException) {
+        false
+    }
+}
+
+private fun isPackageInstalled(context: Context, packageName: String): Boolean {
+    return runCatching {
+        val packageManager = context.packageManager
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.PackageInfoFlags.of(0)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }
+    }.isSuccess
 }
 
 private fun List<HomeItem>.toJsonString(): String {
