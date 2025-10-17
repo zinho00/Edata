@@ -9,13 +9,16 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -31,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -123,6 +127,20 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     val itemIndex = selectedItemIndex
     val entryIndex = selectedEntryIndex
 
+    val navigateHome: () -> Unit = {
+        selectedEntryIndex = null
+        selectedItemIndex = null
+    }
+    val navigateBack: () -> Unit = {
+        when {
+            selectedEntryIndex != null -> selectedEntryIndex = null
+            selectedItemIndex != null -> {
+                selectedItemIndex = null
+                selectedEntryIndex = null
+            }
+        }
+    }
+
     when {
         itemIndex != null && entryIndex != null -> {
             val parent = items.getOrNull(itemIndex)
@@ -133,7 +151,8 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 CareDetailScreen(
                     parentTitle = parent.title,
                     entry = entry,
-                    onBack = { selectedEntryIndex = null },
+                    onNavigateBack = navigateBack,
+                    onNavigateHome = navigateHome,
                     onSave = { info ->
                         val updatedParent = items[itemIndex]
                         val updatedEntries = updatedParent.entries.toMutableList()
@@ -142,7 +161,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                             items[itemIndex] = updatedParent.copy(entries = updatedEntries)
                             saveHomeData(context, items, nextItemId)
                         }
-                        selectedEntryIndex = null
+                        navigateBack()
                     }
                 )
             }
@@ -158,10 +177,8 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     item = parent,
                     itemColor = colorAssignments[parent.id]
                         ?: MaterialTheme.colorScheme.surface,
-                    onBack = {
-                        selectedItemIndex = null
-                        selectedEntryIndex = null
-                    },
+                    onNavigateBack = navigateBack,
+                    onNavigateHome = navigateHome,
                     onAddEntry = {
                         val currentParent = items[itemIndex]
                         val now = LocalDateTime.now()
@@ -212,6 +229,12 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     FloatingActionButton(onClick = { showDialog = true }) {
                         Text(text = "+")
                     }
+                },
+                bottomBar = {
+                    PersistentNavigationBar(
+                        onHomeClick = navigateHome,
+                        onBackClick = navigateBack
+                    )
                 }
             ) { innerPadding ->
                 HomeItemList(
@@ -342,7 +365,8 @@ fun ItemCard(
     backgroundColor: Color,
     textColor: Color,
     onClick: () -> Unit,
-    onLongPress: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null,
+    showFormattedTime: Boolean = true
 ) {
     val formattedTime = remember(createdAt) {
         createdAt.format(displayFormatter)
@@ -368,11 +392,13 @@ fun ItemCard(
                 style = MaterialTheme.typography.titleMedium,
                 color = textColor
             )
-            Text(
-                text = formattedTime,
-                style = MaterialTheme.typography.bodyMedium,
-                color = textColor.copy(alpha = 0.9f)
-            )
+            if (showFormattedTime) {
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor.copy(alpha = 0.9f)
+                )
+            }
         }
     }
 }
@@ -427,10 +453,52 @@ private val cardColorPalette = listOf(
 )
 
 @Composable
+fun PersistentNavigationBar(
+    onHomeClick: () -> Unit,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 6.dp,
+        tonalElevation = 3.dp
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            val buttonSpacing = 12.dp
+            val buttonWidth = ((maxWidth - buttonSpacing) / 2).coerceAtLeast(0.dp)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(buttonSpacing)
+            ) {
+                Button(
+                    modifier = Modifier.width(buttonWidth),
+                    onClick = onHomeClick
+                ) {
+                    Text(text = "首页")
+                }
+                Button(
+                    modifier = Modifier.width(buttonWidth),
+                    onClick = onBackClick
+                ) {
+                    Text(text = "返回")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun EntryListScreen(
     item: HomeItem,
     itemColor: Color,
-    onBack: () -> Unit,
+    onNavigateBack: () -> Unit,
+    onNavigateHome: () -> Unit,
     onAddEntry: () -> Unit,
     onDeleteEntry: (CareEntry) -> Unit,
     onEntryClick: (CareEntry) -> Unit
@@ -442,6 +510,12 @@ fun EntryListScreen(
             FloatingActionButton(onClick = onAddEntry) {
                 Text(text = "+")
             }
+        },
+        bottomBar = {
+            PersistentNavigationBar(
+                onHomeClick = onNavigateHome,
+                onBackClick = onNavigateBack
+            )
         }
     ) { innerPadding ->
         LazyColumn(
@@ -455,7 +529,7 @@ fun EntryListScreen(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TextButton(onClick = onBack) {
+                    TextButton(onClick = onNavigateBack) {
                         Text(text = "返回")
                     }
                     Text(
@@ -488,7 +562,8 @@ fun EntryListScreen(
                         backgroundColor = itemColor,
                         textColor = Color.White,
                         onClick = { onEntryClick(entry) },
-                        onLongPress = { entryPendingDeletion = entry }
+                        onLongPress = { entryPendingDeletion = entry },
+                        showFormattedTime = false
                     )
                 }
             }
@@ -526,7 +601,8 @@ fun EntryListScreen(
 fun CareDetailScreen(
     parentTitle: String,
     entry: CareEntry,
-    onBack: () -> Unit,
+    onNavigateBack: () -> Unit,
+    onNavigateHome: () -> Unit,
     onSave: (CareInfo) -> Unit
 ) {
     var babyFeedingTime by remember(entry) { mutableStateOf(entry.careInfo.babyFeedingTime) }
@@ -541,126 +617,136 @@ fun CareDetailScreen(
     var momWipeCount by remember(entry) { mutableStateOf(entry.careInfo.momWipeCount) }
     var momOther by remember(entry) { mutableStateOf(entry.careInfo.momOther) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        TextButton(onClick = onBack) {
-            Text(text = "返回")
+    Scaffold(
+        bottomBar = {
+            PersistentNavigationBar(
+                onHomeClick = onNavigateHome,
+                onBackClick = onNavigateBack
+            )
         }
-        Text(
-            text = parentTitle,
-            style = MaterialTheme.typography.titleMedium
-        )
-        Text(
-            text = entry.title,
-            style = MaterialTheme.typography.titleLarge
-        )
-
-        Text(
-            text = "宝宝护理",
-            style = MaterialTheme.typography.titleMedium
-        )
-        TextField(
-            value = babyFeedingTime,
-            onValueChange = { babyFeedingTime = it },
-            label = { Text("喂奶时间") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = babyFeedingCount,
-            onValueChange = { babyFeedingCount = it },
-            label = { Text("喂奶次数") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = babyMilkAmount,
-            onValueChange = { babyMilkAmount = it },
-            label = { Text("奶量") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = babyWaterCount,
-            onValueChange = { babyWaterCount = it },
-            label = { Text("喂水次数") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = babyWaterAmount,
-            onValueChange = { babyWaterAmount = it },
-            label = { Text("水量") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = babyExcretionCount,
-            onValueChange = { babyExcretionCount = it },
-            label = { Text("大小便次数") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = babyAbnormal,
-            onValueChange = { babyAbnormal = it },
-            label = { Text("有无异常") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "宝妈护理",
-            style = MaterialTheme.typography.titleMedium
-        )
-        TextField(
-            value = momUrinationCount,
-            onValueChange = { momUrinationCount = it },
-            label = { Text("排尿次数") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = momUrinationAmount,
-            onValueChange = { momUrinationAmount = it },
-            label = { Text("排尿量") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = momWipeCount,
-            onValueChange = { momWipeCount = it },
-            label = { Text("擦身次数") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextField(
-            value = momOther,
-            onValueChange = { momOther = it },
-            label = { Text("其它") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = {
-                onSave(
-                    CareInfo(
-                        babyFeedingTime = babyFeedingTime,
-                        babyFeedingCount = babyFeedingCount,
-                        babyMilkAmount = babyMilkAmount,
-                        babyWaterCount = babyWaterCount,
-                        babyWaterAmount = babyWaterAmount,
-                        babyExcretionCount = babyExcretionCount,
-                        babyAbnormal = babyAbnormal,
-                        momUrinationCount = momUrinationCount,
-                        momUrinationAmount = momUrinationAmount,
-                        momWipeCount = momWipeCount,
-                        momOther = momOther
-                    )
-                )
-            },
-            modifier = Modifier.fillMaxWidth()
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(text = "保存")
+            TextButton(onClick = onNavigateBack) {
+                Text(text = "返回")
+            }
+            Text(
+                text = parentTitle,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "宝宝护理",
+                style = MaterialTheme.typography.titleMedium
+            )
+            TextField(
+                value = babyFeedingTime,
+                onValueChange = { babyFeedingTime = it },
+                label = { Text("喂奶时间") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = babyFeedingCount,
+                onValueChange = { babyFeedingCount = it },
+                label = { Text("喂奶次数") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = babyMilkAmount,
+                onValueChange = { babyMilkAmount = it },
+                label = { Text("奶量") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = babyWaterCount,
+                onValueChange = { babyWaterCount = it },
+                label = { Text("喂水次数") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = babyWaterAmount,
+                onValueChange = { babyWaterAmount = it },
+                label = { Text("水量") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = babyExcretionCount,
+                onValueChange = { babyExcretionCount = it },
+                label = { Text("大小便次数") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = babyAbnormal,
+                onValueChange = { babyAbnormal = it },
+                label = { Text("有无异常") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "宝妈护理",
+                style = MaterialTheme.typography.titleMedium
+            )
+            TextField(
+                value = momUrinationCount,
+                onValueChange = { momUrinationCount = it },
+                label = { Text("排尿次数") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = momUrinationAmount,
+                onValueChange = { momUrinationAmount = it },
+                label = { Text("排尿量") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = momWipeCount,
+                onValueChange = { momWipeCount = it },
+                label = { Text("擦身次数") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextField(
+                value = momOther,
+                onValueChange = { momOther = it },
+                label = { Text("其它") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = {
+                    onSave(
+                        CareInfo(
+                            babyFeedingTime = babyFeedingTime,
+                            babyFeedingCount = babyFeedingCount,
+                            babyMilkAmount = babyMilkAmount,
+                            babyWaterCount = babyWaterCount,
+                            babyWaterAmount = babyWaterAmount,
+                            babyExcretionCount = babyExcretionCount,
+                            babyAbnormal = babyAbnormal,
+                            momUrinationCount = momUrinationCount,
+                            momUrinationAmount = momUrinationAmount,
+                            momWipeCount = momWipeCount,
+                            momOther = momOther
+                        )
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = "保存")
+            }
         }
     }
 }
@@ -676,7 +762,7 @@ fun AddItemDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(text = "创建 Item", textAlign = TextAlign.Start)
+            Text(text = "创建新项目", textAlign = TextAlign.Start)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -684,7 +770,7 @@ fun AddItemDialog(
                     value = title,
                     onValueChange = onTitleChange,
                     singleLine = true,
-                    label = { Text("名称") }
+                    label = { Text("请输入客户名称") }
                 )
             }
         },
