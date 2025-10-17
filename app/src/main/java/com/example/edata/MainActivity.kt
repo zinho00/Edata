@@ -2,6 +2,7 @@ package com.example.edata
 
 import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -16,9 +17,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -41,6 +44,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,16 +61,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.edata.R
 import com.example.edata.ui.theme.EdataTheme
+import java.io.File
+import java.io.FileOutputStream
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import org.apache.poi.ss.usermodel.Font
+import org.apache.poi.ss.usermodel.HorizontalAlignment
+import org.apache.poi.ss.util.CellRangeAddress
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -116,7 +132,11 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var selectedItemIndex by remember { mutableStateOf<Int?>(null) }
     var selectedEntryIndex by remember { mutableStateOf<Int?>(null) }
     var itemPendingDeletion by remember { mutableStateOf<HomeItem?>(null) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    val selectedForExport = remember { mutableStateListOf<Int>() }
+    var isExporting by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(context) {
         val (savedItems, savedNextId) = loadHomeData(context)
@@ -239,7 +259,22 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     HomeTopBar(
                         isMenuOpen = isMenuOpen,
                         onMenuClick = { isMenuOpen = true },
-                        onDismissMenu = { isMenuOpen = false }
+                        onDismissMenu = { isMenuOpen = false },
+                        onExportClick = {
+                            isMenuOpen = false
+                            if (items.isEmpty()) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.export_dialog_empty),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                if (!isExporting) {
+                                    selectedForExport.clear()
+                                }
+                                showExportDialog = true
+                            }
+                        }
                     )
                 },
                 floatingActionButton = {
@@ -269,6 +304,76 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         itemPendingDeletion = item
                     }
                 )
+
+                if (showExportDialog) {
+                    ExportDialog(
+                        items = items,
+                        selectedIds = selectedForExport.toSet(),
+                        isExporting = isExporting,
+                        onToggleItem = { itemId ->
+                            if (selectedForExport.contains(itemId)) {
+                                selectedForExport.remove(itemId)
+                            } else {
+                                selectedForExport.add(itemId)
+                            }
+                        },
+                        onDismiss = {
+                            if (!isExporting) {
+                                showExportDialog = false
+                                selectedForExport.clear()
+                            }
+                        },
+                        onConfirm = {
+                            if (!isExporting) {
+                                if (selectedForExport.isEmpty()) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.export_no_selection),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    val selectedItems = items.filter { selectedForExport.contains(it.id) }
+                                    if (selectedItems.isEmpty()) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.export_no_selection),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        isExporting = true
+                                        coroutineScope.launch {
+                                            val result = withContext(Dispatchers.IO) {
+                                                runCatching { exportHomeItemsToExcel(context, selectedItems) }
+                                            }
+                                            isExporting = false
+                                            showExportDialog = false
+                                            selectedForExport.clear()
+                                            val message = result.fold(
+                                                onSuccess = {
+                                                    context.getString(
+                                                        R.string.export_success,
+                                                        it.absolutePath
+                                                    )
+                                                },
+                                                onFailure = {
+                                                    val detail = it.localizedMessage
+                                                        ?.takeIf { message -> message.isNotBlank() }
+                                                        ?: context.getString(R.string.export_failed_unknown)
+                                                    context.getString(R.string.export_failed, detail)
+                                                }
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                message,
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
 
                 if (showDialog) {
                     AddItemDialog(
@@ -352,7 +457,8 @@ fun HomeTopBar(
     modifier: Modifier = Modifier,
     isMenuOpen: Boolean,
     onMenuClick: () -> Unit,
-    onDismissMenu: () -> Unit
+    onDismissMenu: () -> Unit,
+    onExportClick: () -> Unit
 ) {
     CenterAlignedTopAppBar(
         modifier = modifier,
@@ -370,10 +476,93 @@ fun HomeTopBar(
                     onDismissRequest = onDismissMenu
                 ) {
                     DropdownMenuItem(
-                        text = { Text(text = stringResource(id = R.string.menu_settings)) },
-                        onClick = onDismissMenu
+                        text = { Text(text = stringResource(id = R.string.menu_export)) },
+                        onClick = {
+                            onExportClick()
+                        }
                     )
                 }
+            }
+        }
+    )
+}
+
+@Composable
+fun ExportDialog(
+    items: List<HomeItem>,
+    selectedIds: Set<Int>,
+    isExporting: Boolean,
+    onToggleItem: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = stringResource(id = R.string.export_dialog_title)) },
+        text = {
+            if (items.isEmpty()) {
+                Text(text = stringResource(id = R.string.export_dialog_empty))
+            } else {
+                val scrollState = rememberScrollState()
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items.forEach { item ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedIds.contains(item.id),
+                                onCheckedChange = { onToggleItem(item.id) },
+                                enabled = !isExporting
+                            )
+                            Text(
+                                text = item.title,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 8.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(
+                                    id = R.string.export_entry_count,
+                                    item.entries.size
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = items.isNotEmpty() && !isExporting
+            ) {
+                if (isExporting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(text = stringResource(id = R.string.export_dialog_confirm))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isExporting
+            ) {
+                Text(text = stringResource(id = R.string.export_dialog_cancel))
             }
         }
     )
@@ -844,6 +1033,21 @@ private const val KEY_ITEMS = "home_items"
 private const val KEY_NEXT_ID = "next_item_id"
 private val displayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val storageFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+private val exportFileNameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+private val exportHeaders = listOf(
+    "记录",
+    "喂奶时间",
+    "喂奶次数",
+    "奶量",
+    "喂水次数",
+    "水量",
+    "宝宝大小便次数",
+    "有无异常",
+    "宝妈排尿次数",
+    "排尿量",
+    "擦身次数",
+    "其他情况"
+)
 
 private fun saveHomeData(context: Context, items: List<HomeItem>, nextItemId: Int) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -859,6 +1063,92 @@ private fun loadHomeData(context: Context): Pair<List<HomeItem>, Int> {
     val nextId = prefs.getInt(KEY_NEXT_ID, 0)
     val items = parseHomeItems(itemsJson)
     return items to nextId
+}
+
+private fun exportHomeItemsToExcel(context: Context, items: List<HomeItem>): File {
+    require(items.isNotEmpty()) { "No items selected for export" }
+    val workbook = XSSFWorkbook()
+    val sheet = workbook.createSheet("护理记录")
+
+    val titleStyle = workbook.createCellStyle().apply {
+        val font = workbook.createFont()
+        font.bold = true
+        font.fontHeightInPoints = 14
+        setFont(font)
+    }
+
+    val headerStyle = workbook.createCellStyle().apply {
+        val font = workbook.createFont()
+        font.bold = true
+        setFont(font)
+        wrapText = true
+        alignment = HorizontalAlignment.CENTER
+    }
+
+    var rowIndex = 0
+    items.forEach { item ->
+        val titleRow = sheet.createRow(rowIndex++)
+        val titleCell = titleRow.createCell(0)
+        titleCell.setCellValue(item.title)
+        titleCell.cellStyle = titleStyle
+        sheet.addMergedRegion(
+            CellRangeAddress(
+                titleRow.rowNum,
+                titleRow.rowNum,
+                0,
+                exportHeaders.lastIndex
+            )
+        )
+
+        val headerRow = sheet.createRow(rowIndex++)
+        exportHeaders.forEachIndexed { index, header ->
+            val cell = headerRow.createCell(index)
+            cell.setCellValue(header)
+            cell.cellStyle = headerStyle
+        }
+
+        if (item.entries.isEmpty()) {
+            val row = sheet.createRow(rowIndex++)
+            row.createCell(0).setCellValue("暂无记录")
+        } else {
+            item.entries
+                .sortedBy { it.createdAt }
+                .forEach { entry ->
+                    val row = sheet.createRow(rowIndex++)
+                    val info = entry.careInfo
+                    row.createCell(0).setCellValue(entry.title)
+                    row.createCell(1).setCellValue(info.babyFeedingTime)
+                    row.createCell(2).setCellValue(info.babyFeedingCount)
+                    row.createCell(3).setCellValue(info.babyMilkAmount)
+                    row.createCell(4).setCellValue(info.babyWaterCount)
+                    row.createCell(5).setCellValue(info.babyWaterAmount)
+                    row.createCell(6).setCellValue(info.babyExcretionCount)
+                    row.createCell(7).setCellValue(info.babyAbnormal)
+                    row.createCell(8).setCellValue(info.momUrinationCount)
+                    row.createCell(9).setCellValue(info.momUrinationAmount)
+                    row.createCell(10).setCellValue(info.momWipeCount)
+                    row.createCell(11).setCellValue(info.momOther)
+                }
+        }
+
+        rowIndex++
+    }
+
+    exportHeaders.indices.forEach { index ->
+        sheet.autoSizeColumn(index)
+    }
+
+    val directory = context.getExternalFilesDir(null) ?: context.filesDir
+    if (!directory.exists()) {
+        directory.mkdirs()
+    }
+    val fileName = "care_export_${LocalDateTime.now().format(exportFileNameFormatter)}.xlsx"
+    val file = File(directory, fileName)
+    FileOutputStream(file).use { output ->
+        workbook.write(output)
+    }
+    workbook.close()
+    return file
 }
 
 private fun List<HomeItem>.toJsonString(): String {

@@ -1,5 +1,14 @@
 <resources>
     <string name="app_name">记事本</string>
     <string name="open_menu">打开菜单</string>
-    <string name="menu_settings">设置</string>
+    <string name="menu_export">导出</string>
+    <string name="export_dialog_title">选择导出项</string>
+    <string name="export_dialog_empty">暂无可导出的数据</string>
+    <string name="export_dialog_confirm">导出</string>
+    <string name="export_dialog_cancel">取消</string>
+    <string name="export_no_selection">请至少选择一个首页项目</string>
+    <string name="export_entry_count">记录数：%1$d</string>
+    <string name="export_success">导出成功：%1$s</string>
+    <string name="export_failed">导出失败：%1$s</string>
+    <string name="export_failed_unknown">未知错误</string>
 </resources>
