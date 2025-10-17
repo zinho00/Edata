@@ -41,7 +41,7 @@ android {
 
 // ⚠️ 全局排除必须在顶层，不能放在 dependencies {} 里
 configurations.all {
-    exclude(group = "org.apache.logging.log4j")
+    exclude(group = "org.apache.logging.log4j", module = "log4j-core")
 }
 
 dependencies {
