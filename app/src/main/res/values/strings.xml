@@ -1,11 +1,10 @@
 <resources>
     <string name="app_name">记事本</string>
     <string name="open_menu">打开菜单</string>
-    <string name="menu_export">导出 Excel</string>
     <string name="menu_share_wechat">分享至微信</string>
-    <string name="export_dialog_title">选择导出项</string>
-    <string name="export_dialog_empty">暂无可导出的数据</string>
-    <string name="export_dialog_confirm">导出</string>
+    <string name="export_dialog_title">选择分享内容</string>
+    <string name="export_dialog_empty">暂无可分享的数据</string>
+    <string name="export_dialog_confirm">分享</string>
     <string name="export_dialog_cancel">取消</string>
     <string name="export_no_selection">请至少选择一个首页项目</string>
     <string name="export_entry_count">记录数：%1$d</string>
@@ -14,5 +13,4 @@
     <string name="export_success_toast">Excel 已导出：%1$s\n请确认文件内容无误后再进行分享。</string>
     <string name="share_launch_wechat">正在打开微信进行分享</string>
     <string name="share_failed_wechat_not_installed">未检测到已安装微信，请先安装后再试</string>
-    <string name="share_no_recent_export">请先导出 Excel 文件</string>
 </resources>
